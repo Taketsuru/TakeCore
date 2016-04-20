@@ -1,0 +1,6 @@
+name: TakeCore
+main: jp.dip.myuminecraft.takecore.TakeCore
+version: "${project.version}"
+depend: []
+softdepend: []
+commands: {}
