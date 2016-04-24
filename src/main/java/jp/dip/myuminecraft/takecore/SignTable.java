@@ -1,12 +1,12 @@
 package jp.dip.myuminecraft.takecore;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.function.BiFunction;
 
 import org.bukkit.Chunk;
 import org.bukkit.Location;
@@ -14,6 +14,7 @@ import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
+import org.bukkit.block.BlockState;
 import org.bukkit.block.Sign;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -36,14 +37,6 @@ import jp.dip.myuminecraft.takecore.Messages;
  *
  */
 public class SignTable implements Listener {
-
-    private class IncrementValue
-            implements BiFunction<Location, Integer, Integer> {
-        @Override
-        public Integer apply(Location t, Integer u) {
-            return u == null ? 0 : u + 1;
-        }
-    }
 
     private class AttachedSignsIterator implements Iterator<ManagedSign> {
 
@@ -102,9 +95,6 @@ public class SignTable implements Listener {
         }
     }
 
-    static final int           chunkXSize      = 16;
-    static final int           chunkZSize      = 16;
-    static final int           chunkYSize      = 256;
     static final BlockFace[]   attachableFaces = { BlockFace.SOUTH,
     BlockFace.WEST, BlockFace.NORTH, BlockFace.EAST, BlockFace.UP };
 
@@ -115,7 +105,6 @@ public class SignTable implements Listener {
     Map<Location, ManagedSign> managedSigns;
     Map<Chunk, List<Location>> nonBlankSignLocations;
     Map<Location, Integer>     attachedSignsCount;
-    IncrementValue             incrementValue;
 
     public SignTable(JavaPlugin plugin, Logger logger, Messages messages) {
         this.plugin = plugin;
@@ -125,7 +114,6 @@ public class SignTable implements Listener {
         managedSigns = new HashMap<Location, ManagedSign>();
         nonBlankSignLocations = new HashMap<Chunk, List<Location>>();
         attachedSignsCount = new HashMap<Location, Integer>();
-        incrementValue = new IncrementValue();
 
         int chunkCount = 0;
         int signCount = 0;
@@ -214,8 +202,10 @@ public class SignTable implements Listener {
         }
 
         Block block = event.getBlock();
-        attachedSignsCount.compute(ManagedSign.getAttachedLocation(block),
-                incrementValue);
+        Location attachedLocation = ManagedSign.getAttachedLocation(block);
+        Integer currentCount = attachedSignsCount.get(attachedLocation);
+        attachedSignsCount.put(attachedLocation,
+                currentCount == null ? 1 : currentCount + 1);
 
         Location location = block.getLocation();
         Chunk chunk = block.getChunk();
@@ -235,11 +225,11 @@ public class SignTable implements Listener {
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void didBlockBreak(BlockBreakEvent event) {
         Block block = event.getBlock();
-        logger.info("onBlockBreak %s %s", event, block.getLocation());
 
         switch (block.getType()) {
         case WALL_SIGN:
         case SIGN_POST:
+            logger.info("onBlockBreak sign %s %s", event, block.getLocation());
             if (!isBlank(((Sign) block.getState()).getLines())) {
                 unregisterSign(block);
             }
@@ -261,6 +251,8 @@ public class SignTable implements Listener {
                 continue;
             }
 
+            logger.info("onBlockBreak attached %s %s", event,
+                    block.getLocation());
             if (!isBlank(((Sign) signBlock.getState()).getLines())) {
                 unregisterSign(signBlock);
             }
@@ -282,12 +274,6 @@ public class SignTable implements Listener {
         }
 
         for (Location location : list) {
-            ManagedSign sign = managedSigns.remove(location);
-            SignTableListener owner = sign.getOwner();
-            if (owner != null) {
-                owner.destroy(sign);
-            }
-
             unregisterSign(location.getBlock());
         }
     }
@@ -304,16 +290,12 @@ public class SignTable implements Listener {
     }
 
     void unregisterSign(Block block) {
-        logger.info("onSignBreak %s", block);
-
         Location location = block.getLocation();
         Chunk chunk = block.getChunk();
         List<Location> list = nonBlankSignLocations.get(chunk);
         if (list != null) {
-            if (1 < list.size()) {
-                list.remove(location);
-            } else {
-                logger.info("signLocations.remove %s", chunk);
+            list.remove(location);
+            if (list.isEmpty()) {
                 nonBlankSignLocations.remove(chunk);
             }
         }
@@ -321,7 +303,6 @@ public class SignTable implements Listener {
         Location attachedLocation = ManagedSign.getAttachedBlock(block)
                 .getLocation();
         Integer count = attachedSignsCount.get(attachedLocation);
-        logger.info("count %d", count);
         if (1 < count) {
             attachedSignsCount.put(attachedLocation, count - 1);
         } else {
@@ -329,7 +310,6 @@ public class SignTable implements Listener {
         }
 
         ManagedSign sign = managedSigns.remove(location);
-        logger.info("sign %s", sign);
         if (sign != null) {
             sign.getOwner().destroy(sign);
         }
@@ -339,39 +319,29 @@ public class SignTable implements Listener {
         List<Location> signs = new ArrayList<Location>();
         assert !nonBlankSignLocations.containsKey(chunk);
 
-        for (int y = 0; y < chunkYSize; ++y) {
-            for (int z = 0; z < chunkZSize; ++z) {
-                for (int x = 0; x < chunkXSize; ++x) {
-                    Block block = chunk.getBlock(x, y, z);
-                    switch (block.getType()) {
-                    case SIGN_POST:
-                    case WALL_SIGN:
-                        Location location = block.getLocation();
-                        String[] lines = ((Sign) block.getState()).getLines();
-                        if (isBlank(lines)) {
-                            break;
-                        }
+        for (BlockState state : chunk.getTileEntities()) {
+            if (!(state instanceof Sign)) {
+                continue;
+            }
 
-                        signs.add(location);
-                        attachedSignsCount
-                                .compute(
-                                        ManagedSign.getAttachedBlock(block)
-                                                .getLocation(),
-                                        incrementValue);
+            Block block = state.getBlock();
+            Location location = block.getLocation();
+            String[] lines = ((Sign) state).getLines();
+            if (isBlank(lines)) {
+                continue;
+            }
 
-                        Sign state = (Sign) block.getState();
-                        ManagedSign sign = create(location, lines);
-                        if (sign != null) {
-                            managedSigns.put(location, sign);
-                            state.update();
-                        }
+            signs.add(location);
 
-                        break;
+            Location attachedLocation = ManagedSign.getAttachedLocation(block);
+            Integer currentCount = attachedSignsCount.get(attachedLocation);
+            attachedSignsCount.put(attachedLocation,
+                    currentCount == null ? 1 : currentCount + 1);
 
-                    default:
-                        break;
-                    }
-                }
+            ManagedSign sign = create(location, lines);
+            if (sign != null) {
+                managedSigns.put(location, sign);
+                state.update();
             }
         }
 
