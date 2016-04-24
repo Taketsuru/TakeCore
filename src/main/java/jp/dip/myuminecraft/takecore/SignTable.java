@@ -38,63 +38,6 @@ import jp.dip.myuminecraft.takecore.Messages;
  */
 public class SignTable implements Listener {
 
-    private class AttachedSignsIterator implements Iterator<ManagedSign> {
-
-        ManagedSign nextSign;
-        Block       attachedBlock;
-        int         index;
-
-        AttachedSignsIterator(Block attachedBlock, SignTableListener owner) {
-            this.attachedBlock = attachedBlock;
-            index = -1;
-            find(owner);
-        }
-
-        @Override
-        public boolean hasNext() {
-            return nextSign != null;
-        }
-
-        @Override
-        public ManagedSign next() {
-            ManagedSign result = nextSign;
-            ++index;
-            find(result.getOwner());
-            return result;
-        }
-
-        private void find(SignTableListener owner) {
-            if (nextSign == null) {
-                return;
-            }
-
-            for (int i = index + 1; i < attachableFaces.length; ++i) {
-                Block signBlock = attachedBlock
-                        .getRelative(attachableFaces[i]);
-                Material material = signBlock.getType();
-                if (material != Material.WALL_SIGN
-                        && material != Material.SIGN_POST) {
-                    continue;
-                }
-
-                ManagedSign sign = managedSigns.get(signBlock.getLocation());
-                if (sign == null) {
-                    continue;
-                }
-
-                if (sign.getOwner() != owner) {
-                    continue;
-                }
-
-                nextSign = sign;
-                index = i;
-                return;
-            }
-
-            nextSign = null;
-        }
-    }
-
     static final BlockFace[]   attachableFaces = { BlockFace.SOUTH,
     BlockFace.WEST, BlockFace.NORTH, BlockFace.EAST, BlockFace.UP };
 
@@ -174,15 +117,6 @@ public class SignTable implements Listener {
         }
 
         listeners.remove(listener);
-    }
-
-    public Iterator<ManagedSign> attachedSigns(SignTableListener owner,
-            Block block) {
-        if (!attachedSignsCount.containsKey(block.getLocation())) {
-            return null;
-        }
-
-        return new AttachedSignsIterator(block, owner);
     }
 
     @EventHandler(ignoreCancelled = true)
