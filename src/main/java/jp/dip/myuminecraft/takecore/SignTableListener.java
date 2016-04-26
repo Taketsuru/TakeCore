@@ -5,7 +5,7 @@ import org.bukkit.entity.Player;
 
 public interface SignTableListener {
     public boolean mayCreate(Player player, Location location,
-            String[] lines);
+            Location attachedLocation, String[] lines);
 
     public ManagedSign create(Location location, Location attachedLocation,
             String[] lines);

@@ -38,16 +38,48 @@ import jp.dip.myuminecraft.takecore.Messages;
  */
 public class SignTable implements Listener {
 
-    static final BlockFace[]      attachableFaces = { BlockFace.SOUTH,
+    static class ChunkId {
+        String worldName;
+        int    x;
+        int    z;
+
+        public ChunkId(Chunk chunk) {
+            worldName = chunk.getWorld().getName();
+            x = chunk.getX();
+            z = chunk.getZ();
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (obj == this) {
+                return true;
+            }
+
+            if (!(obj instanceof ChunkId)) {
+                return false;
+            }
+
+            ChunkId chunk = (ChunkId) obj;
+            return x == chunk.x && z == chunk.z
+                    && worldName.equals(chunk.worldName);
+        }
+
+        @Override
+        public int hashCode() {
+            return worldName.hashCode() ^ x ^ z;
+        }
+    }
+
+    static final BlockFace[]        attachableFaces = { BlockFace.SOUTH,
     BlockFace.WEST, BlockFace.NORTH, BlockFace.EAST, BlockFace.UP };
 
-    JavaPlugin                    plugin;
-    Logger                        logger;
-    Messages                      messages;
-    List<SignTableListener>       listeners;
-    Map<Location, ManagedSign>    managedSigns;
-    Map<Chunk, List<ManagedSign>> managedSignsInChunk;
-    Map<Location, Integer>        attachedSignsCount;
+    JavaPlugin                      plugin;
+    Logger                          logger;
+    Messages                        messages;
+    List<SignTableListener>         listeners;
+    Map<Location, ManagedSign>      managedSigns;
+    Map<ChunkId, List<ManagedSign>> managedSignsInChunk;
+    Map<Location, Integer>          attachedSignsCount;
 
     public SignTable(JavaPlugin plugin, Logger logger, Messages messages) {
         this.plugin = plugin;
@@ -56,8 +88,7 @@ public class SignTable implements Listener {
         listeners = new LinkedList<SignTableListener>();
         managedSigns = new HashMap<Location, ManagedSign>();
         attachedSignsCount = new HashMap<Location, Integer>();
-        managedSignsInChunk = new HashMap<Chunk, List<ManagedSign>>();
-
+        managedSignsInChunk = new HashMap<ChunkId, List<ManagedSign>>();
         plugin.getServer().getPluginManager().registerEvents(this, plugin);
     }
 
@@ -71,27 +102,22 @@ public class SignTable implements Listener {
     }
 
     public void addListener(SignTableListener listener) {
-        assert !listeners.contains(listener);
-
         listeners.add(listener);
-
         for (World world : plugin.getServer().getWorlds()) {
-            Chunk[] chunks = world.getLoadedChunks();
-            for (int i = 0; i < chunks.length; ++i) {
-                findAllSignsInChunk(chunks[i]);
+            for (Chunk chunk : world.getLoadedChunks()) {
+                findAllSignsInChunk(chunk);
             }
         }
     }
 
     public void removeListener(SignTableListener listener) {
-        assert listeners.contains(listener);
-
         Iterator<ManagedSign> iter = managedSigns.values().iterator();
         while (iter.hasNext()) {
             ManagedSign sign = iter.next();
             if (sign.getOwner() == listener) {
                 iter.remove();
-                unregisterSign(sign);
+                removeFromManagedSignsInChunk(sign);
+                decrementAttachedSignsCount(sign);
             }
         }
 
@@ -100,9 +126,12 @@ public class SignTable implements Listener {
 
     @EventHandler(ignoreCancelled = true)
     public void shouldSignChange(SignChangeEvent event) {
+        Block block = event.getBlock();
+        Location location = block.getLocation();
+        Location attachedLocation = ManagedSign.getAttachedLocation(block);
         String[] lines = event.getLines();
-        if (!isBlank(lines) && !mayCreate(event.getPlayer(),
-                event.getBlock().getLocation(), lines)) {
+        if (!isBlank(lines) && !mayCreate(event.getPlayer(), location,
+                attachedLocation, lines)) {
             event.setCancelled(true);
         }
     }
@@ -124,11 +153,11 @@ public class SignTable implements Listener {
 
         managedSigns.put(location, sign);
 
-        Chunk chunk = block.getChunk();
-        List<ManagedSign> list = managedSignsInChunk.get(chunk);
+        ChunkId chunkId = new ChunkId(block.getChunk());
+        List<ManagedSign> list = managedSignsInChunk.get(chunkId);
         if (list == null) {
             list = new ArrayList<ManagedSign>();
-            managedSignsInChunk.put(chunk, list);
+            managedSignsInChunk.put(chunkId, list);
         }
         list.add(sign);
 
@@ -145,7 +174,8 @@ public class SignTable implements Listener {
         ManagedSign sign = managedSigns.remove(location);
         if (sign != null) {
             sign.getOwner().destroy(sign);
-            unregisterSign(sign);
+            removeFromManagedSignsInChunk(sign);
+            decrementAttachedSignsCount(sign);
         }
 
         Location attachedLocation = block.getLocation();
@@ -156,11 +186,10 @@ public class SignTable implements Listener {
                 sign = managedSigns.remove(location);
                 if (sign != null) {
                     sign.getOwner().destroy(sign);
-                    unregisterSign(sign);
+                    removeFromManagedSignsInChunk(sign);
                 }
             }
         }
-
     }
 
     @EventHandler
@@ -170,24 +199,16 @@ public class SignTable implements Listener {
 
     @EventHandler(ignoreCancelled = true)
     public void onChunkUnloadEvent(ChunkUnloadEvent event) {
-        Chunk chunk = event.getChunk();
-        List<ManagedSign> list = managedSignsInChunk.remove(chunk);
+        ChunkId chunkId = new ChunkId(event.getChunk());
+        List<ManagedSign> list = managedSignsInChunk.remove(chunkId);
         if (list == null) {
             return;
         }
 
         for (ManagedSign sign : list) {
             sign.getOwner().destroy(sign);
-
             managedSigns.remove(sign.getLocation());
-
-            Location attachedLocation = sign.getAttachedLocation();
-            int count = attachedSignsCount.get(attachedLocation);
-            if (count == 1) {
-                attachedSignsCount.remove(attachedLocation);
-            } else {
-                attachedSignsCount.put(attachedLocation, count - 1);
-            }
+            decrementAttachedSignsCount(sign);
         }
     }
 
@@ -202,15 +223,17 @@ public class SignTable implements Listener {
         return true;
     }
 
-    void unregisterSign(ManagedSign sign) {
-        Chunk chunk = sign.getLocation().getChunk();
-        List<ManagedSign> list = managedSignsInChunk.get(chunk);
+    void removeFromManagedSignsInChunk(ManagedSign sign) {
+        ChunkId chunkId = new ChunkId(sign.getLocation().getChunk());
+        List<ManagedSign> list = managedSignsInChunk.get(chunkId);
         if (1 < list.size()) {
             list.remove(sign);
         } else {
-            managedSignsInChunk.remove(chunk);
+            managedSignsInChunk.remove(chunkId);
         }
+    }
 
+    void decrementAttachedSignsCount(ManagedSign sign) {
         Location attachedLocation = sign.getAttachedLocation();
         int count = attachedSignsCount.get(attachedLocation);
         if (count == 1) {
@@ -220,10 +243,12 @@ public class SignTable implements Listener {
         }
     }
 
-    void findAllSignsInChunk(Chunk chunk) {       
-        Set<Location> existing = new HashSet<Location>();        
-        List<ManagedSign> signs = managedSignsInChunk.get(chunk);
-        if (signs == null) {
+    void findAllSignsInChunk(Chunk chunk) {
+        ChunkId chunkId = new ChunkId(chunk);
+        Set<Location> existing = new HashSet<Location>();
+        List<ManagedSign> signs = managedSignsInChunk.get(chunkId);
+        boolean noManagedSignsInChunk = signs == null;
+        if (noManagedSignsInChunk) {
             signs = new ArrayList<ManagedSign>();
         } else {
             for (ManagedSign sign : signs) {
@@ -251,11 +276,8 @@ public class SignTable implements Listener {
             ManagedSign sign = create(location, attachedLocation, lines);
             if (sign != null) {
                 state.update();
-
                 signs.add(sign);
-
                 managedSigns.put(location, sign);
-
                 Integer currentCount = attachedSignsCount
                         .get(attachedLocation);
                 attachedSignsCount.put(attachedLocation,
@@ -263,14 +285,16 @@ public class SignTable implements Listener {
             }
         }
 
-        if (!signs.isEmpty() && existing.isEmpty()) {
-            managedSignsInChunk.put(chunk, signs);
+        if (noManagedSignsInChunk && !signs.isEmpty()) {
+            managedSignsInChunk.put(chunkId, signs);
         }
     }
 
-    boolean mayCreate(Player player, Location location, String[] signText) {
+    boolean mayCreate(Player player, Location location,
+            Location attachedLocation, String[] signText) {
         for (SignTableListener listener : listeners) {
-            if (!listener.mayCreate(player, location, signText)) {
+            if (!listener.mayCreate(player, location, attachedLocation,
+                    signText)) {
                 return false;
             }
         }
