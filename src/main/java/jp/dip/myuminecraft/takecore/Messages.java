@@ -21,7 +21,7 @@ public class Messages {
     public Messages(String languageTag) throws IllformedLocaleException {
         Locale locale = languageTag != null
                 ? new Locale.Builder().setLanguageTag(languageTag).build()
-                : new Locale("en-US");
+                : Locale.ENGLISH;
         bundle = ResourceBundle.getBundle("messages", locale);
         this.locale = locale;
     }

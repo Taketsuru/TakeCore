@@ -1,6 +1,8 @@
 package jp.dip.myuminecraft.takecore;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -9,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.bukkit.Bukkit;
 import org.bukkit.Chunk;
 import org.bukkit.Location;
 import org.bukkit.World;
@@ -25,6 +28,8 @@ import org.bukkit.event.block.SignChangeEvent;
 import org.bukkit.event.world.ChunkLoadEvent;
 import org.bukkit.event.world.ChunkUnloadEvent;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.scheduler.BukkitTask;
 
 import jp.dip.myuminecraft.takecore.Logger;
 import jp.dip.myuminecraft.takecore.Messages;
@@ -68,8 +73,25 @@ public class SignTable implements Listener {
         public int hashCode() {
             return worldName.hashCode() ^ x ^ z;
         }
+
+        public Chunk getChunk() {
+            return Bukkit.getWorld(worldName).getChunkAt(x, z);
+        }
     }
 
+    static class ChunkLoad {
+        ChunkId chunkId;
+        long    arrivalTime;
+
+        ChunkLoad(ChunkId chunkId, long arrivalTime) {
+            this.chunkId = chunkId;
+            this.arrivalTime = arrivalTime;
+        }
+    };
+
+    static final long               ticksPerSec     = 20;
+    static final long               tickInMillis    = 1000 / ticksPerSec;
+    static final long               chunkLoadDelay  = 1000;
     static final BlockFace[]        attachableFaces = { BlockFace.SOUTH,
     BlockFace.WEST, BlockFace.NORTH, BlockFace.EAST, BlockFace.UP };
 
@@ -80,6 +102,8 @@ public class SignTable implements Listener {
     Map<Location, ManagedSign>      managedSigns;
     Map<ChunkId, List<ManagedSign>> managedSignsInChunk;
     Map<Location, Integer>          attachedSignsCount;
+    BukkitRunnable                  nextLoadTimer;
+    Deque<ChunkLoad>                chunkLoadQueue;
 
     public SignTable(JavaPlugin plugin, Logger logger, Messages messages) {
         this.plugin = plugin;
@@ -89,6 +113,7 @@ public class SignTable implements Listener {
         managedSigns = new HashMap<Location, ManagedSign>();
         attachedSignsCount = new HashMap<Location, Integer>();
         managedSignsInChunk = new HashMap<ChunkId, List<ManagedSign>>();
+        chunkLoadQueue = new ArrayDeque<ChunkLoad>();
         plugin.getServer().getPluginManager().registerEvents(this, plugin);
     }
 
@@ -99,13 +124,17 @@ public class SignTable implements Listener {
         managedSigns.clear();
         managedSignsInChunk.clear();
         attachedSignsCount.clear();
+        chunkLoadQueue.clear();
+        if (nextLoadTimer != null) {
+            nextLoadTimer.cancel();
+        }
     }
 
     public void addListener(SignTableListener listener) {
         listeners.add(listener);
         for (World world : plugin.getServer().getWorlds()) {
             for (Chunk chunk : world.getLoadedChunks()) {
-                findAllSignsInChunk(chunk);
+                findAllSignsInChunk(new ChunkId(chunk));
             }
         }
     }
@@ -194,12 +223,33 @@ public class SignTable implements Listener {
 
     @EventHandler
     public void onChunkLoadEvent(ChunkLoadEvent event) {
-        findAllSignsInChunk(event.getChunk());
+        ChunkLoad chunkLoad = new ChunkLoad(new ChunkId(event.getChunk()),
+                System.currentTimeMillis());
+        chunkLoadQueue.addLast(chunkLoad);
+        if (chunkLoadQueue.size() == 1) {
+            scheduleNextChunkLoad();
+        }
     }
 
     @EventHandler(ignoreCancelled = true)
     public void onChunkUnloadEvent(ChunkUnloadEvent event) {
-        ChunkId chunkId = new ChunkId(event.getChunk());
+        Chunk chunk = event.getChunk();
+        ChunkId chunkId = new ChunkId(chunk);
+
+        Iterator<ChunkLoad> iter = chunkLoadQueue.iterator();
+        boolean isFirst = true;
+        while (iter.hasNext()) {
+            ChunkLoad chunkLoad = iter.next();
+            if (chunkLoad.chunkId.equals(chunkId)) {
+                iter.remove();
+                if (isFirst) {
+                    scheduleNextChunkLoad();
+                }
+                return;
+            }
+            isFirst = false;
+        }
+
         List<ManagedSign> list = managedSignsInChunk.remove(chunkId);
         if (list == null) {
             return;
@@ -243,8 +293,8 @@ public class SignTable implements Listener {
         }
     }
 
-    void findAllSignsInChunk(Chunk chunk) {
-        ChunkId chunkId = new ChunkId(chunk);
+    void findAllSignsInChunk(ChunkId chunkId) {
+        Chunk chunk = chunkId.getChunk();
         Set<Location> existing = new HashSet<Location>();
         List<ManagedSign> signs = managedSignsInChunk.get(chunkId);
         boolean noManagedSignsInChunk = signs == null;
@@ -311,6 +361,32 @@ public class SignTable implements Listener {
             }
         }
         return null;
+    }
+
+    void handleScheduledChunkLoad() {
+        findAllSignsInChunk(chunkLoadQueue.removeFirst().chunkId);
+
+        if (chunkLoadQueue.isEmpty()) {
+            nextLoadTimer = null;
+        } else {
+            scheduleNextChunkLoad();
+        }
+    }
+
+    void scheduleNextChunkLoad() {
+        if (nextLoadTimer != null) {
+            nextLoadTimer.cancel();
+        }
+        nextLoadTimer = new BukkitRunnable() {
+            @Override
+            public void run() {
+                handleScheduledChunkLoad();
+            }
+        };
+        nextLoadTimer.runTaskLater(plugin,
+                Math.max(1,
+                        (chunkLoadQueue.getFirst().arrivalTime + chunkLoadDelay -
+                        System.currentTimeMillis()) / tickInMillis));
     }
 
 }
