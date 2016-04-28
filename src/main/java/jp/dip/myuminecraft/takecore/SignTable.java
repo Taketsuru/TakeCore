@@ -127,6 +127,7 @@ public class SignTable implements Listener {
         chunkLoadQueue.clear();
         if (nextLoadTimer != null) {
             nextLoadTimer.cancel();
+            nextLoadTimer = null;
         }
     }
 
@@ -363,30 +364,34 @@ public class SignTable implements Listener {
         return null;
     }
 
-    void handleScheduledChunkLoad() {
-        findAllSignsInChunk(chunkLoadQueue.removeFirst().chunkId);
-
-        if (chunkLoadQueue.isEmpty()) {
-            nextLoadTimer = null;
-        } else {
-            scheduleNextChunkLoad();
-        }
-    }
-
     void scheduleNextChunkLoad() {
         if (nextLoadTimer != null) {
             nextLoadTimer.cancel();
+            nextLoadTimer = null;
         }
+        
+        if (chunkLoadQueue.isEmpty()) {
+            return;
+        }
+        
         nextLoadTimer = new BukkitRunnable() {
             @Override
             public void run() {
-                handleScheduledChunkLoad();
+                nextLoadTimer = null;
+                findAllSignsInChunk(chunkLoadQueue.removeFirst().chunkId);
+                if (!chunkLoadQueue.isEmpty()) {
+                    scheduleNextChunkLoad();
+                }
             }
         };
-        nextLoadTimer.runTaskLater(plugin,
-                Math.max(1,
-                        (chunkLoadQueue.getFirst().arrivalTime + chunkLoadDelay -
-                        System.currentTimeMillis()) / tickInMillis));
+
+        nextLoadTimer
+                .runTaskLater(plugin,
+                        Math.max(1,
+                                (chunkLoadQueue.getFirst().arrivalTime
+                                        + chunkLoadDelay
+                                        - System.currentTimeMillis())
+                                        / tickInMillis));
     }
 
 }
