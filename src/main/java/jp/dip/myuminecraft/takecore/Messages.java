@@ -5,7 +5,9 @@ import java.util.IllformedLocaleException;
 import java.util.Locale;
 import java.util.MissingResourceException;
 import java.util.ResourceBundle;
+import java.util.logging.Level;
 
+import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
 
 public class Messages {
@@ -13,16 +15,15 @@ public class Messages {
     ResourceBundle bundle;
     Locale         locale;
 
-    public Messages(Locale locale) {
-        bundle = ResourceBundle.getBundle("messages", locale);
-        this.locale = locale;
-    }
-
-    public Messages(String languageTag) throws IllformedLocaleException {
-        Locale locale = languageTag != null
+    public static Locale getLocale(String languageTag)
+            throws IllformedLocaleException {
+        return languageTag != null
                 ? new Locale.Builder().setLanguageTag(languageTag).build()
                 : Locale.ENGLISH;
-        bundle = ResourceBundle.getBundle("messages", locale);
+    }
+
+    public Messages(ResourceBundle bundle, Locale locale) {
+        this.bundle = bundle;
         this.locale = locale;
     }
 

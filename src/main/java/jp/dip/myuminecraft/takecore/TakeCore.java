@@ -1,5 +1,8 @@
 package jp.dip.myuminecraft.takecore;
 
+import java.util.Locale;
+import java.util.ResourceBundle;
+
 import org.bukkit.plugin.java.JavaPlugin;
 
 public class TakeCore extends JavaPlugin {
@@ -13,7 +16,8 @@ public class TakeCore extends JavaPlugin {
         saveDefaultConfig();
 
         logger = new Logger(getLogger());
-        messages = new Messages(getConfig().getString("locale"));
+        Locale locale = Messages.getLocale(getConfig().getString("locale"));
+        messages = new Messages(ResourceBundle.getBundle("messages", locale), locale);
         signTable = new SignTable(this, logger, messages);
     }
 
