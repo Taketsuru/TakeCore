@@ -29,7 +29,6 @@ import org.bukkit.event.world.ChunkLoadEvent;
 import org.bukkit.event.world.ChunkUnloadEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
-import org.bukkit.scheduler.BukkitTask;
 
 import jp.dip.myuminecraft.takecore.Logger;
 import jp.dip.myuminecraft.takecore.Messages;
@@ -81,11 +80,11 @@ public class SignTable implements Listener {
 
     static class ChunkLoad {
         ChunkId chunkId;
-        long    arrivalTime;
+        long    releaseTime;
 
-        ChunkLoad(ChunkId chunkId, long arrivalTime) {
+        ChunkLoad(ChunkId chunkId, long releaseTime) {
             this.chunkId = chunkId;
-            this.arrivalTime = arrivalTime;
+            this.releaseTime = releaseTime;
         }
     };
 
@@ -102,7 +101,7 @@ public class SignTable implements Listener {
     Map<Location, ManagedSign>      managedSigns;
     Map<ChunkId, List<ManagedSign>> managedSignsInChunk;
     Map<Location, Integer>          attachedSignsCount;
-    BukkitRunnable                  nextLoadTimer;
+    BukkitRunnable                  nextLoadTask;
     Deque<ChunkLoad>                chunkLoadQueue;
 
     public SignTable(JavaPlugin plugin, Logger logger, Messages messages) {
@@ -125,9 +124,9 @@ public class SignTable implements Listener {
         managedSignsInChunk.clear();
         attachedSignsCount.clear();
         chunkLoadQueue.clear();
-        if (nextLoadTimer != null) {
-            nextLoadTimer.cancel();
-            nextLoadTimer = null;
+        if (nextLoadTask != null) {
+            nextLoadTask.cancel();
+            nextLoadTask = null;
         }
     }
 
@@ -152,6 +151,10 @@ public class SignTable implements Listener {
         }
 
         listeners.remove(listener);
+    }
+
+    public ManagedSign getManagedSign(Location location) {
+        return managedSigns.get(location);
     }
 
     @EventHandler(ignoreCancelled = true)
@@ -225,7 +228,7 @@ public class SignTable implements Listener {
     @EventHandler
     public void onChunkLoadEvent(ChunkLoadEvent event) {
         ChunkLoad chunkLoad = new ChunkLoad(new ChunkId(event.getChunk()),
-                System.currentTimeMillis());
+                System.currentTimeMillis() + chunkLoadDelay);
         chunkLoadQueue.addLast(chunkLoad);
         if (chunkLoadQueue.size() == 1) {
             scheduleNextChunkLoad();
@@ -365,31 +368,37 @@ public class SignTable implements Listener {
     }
 
     void scheduleNextChunkLoad() {
-        if (nextLoadTimer != null) {
-            nextLoadTimer.cancel();
-            nextLoadTimer = null;
+        if (nextLoadTask != null) {
+            nextLoadTask.cancel();
+            nextLoadTask = null;
         }
-        
+
         if (chunkLoadQueue.isEmpty()) {
             return;
         }
-        
-        nextLoadTimer = new BukkitRunnable() {
+
+        nextLoadTask = new BukkitRunnable() {
             @Override
             public void run() {
-                nextLoadTimer = null;
-                findAllSignsInChunk(chunkLoadQueue.removeFirst().chunkId);
-                if (!chunkLoadQueue.isEmpty()) {
-                    scheduleNextChunkLoad();
+                nextLoadTask = null;
+                while (!chunkLoadQueue.isEmpty()) {
+                    ChunkLoad chunkLoad = chunkLoadQueue.getFirst();
+                    long diff = chunkLoad.releaseTime
+                            - System.currentTimeMillis();
+                    if (tickInMillis < diff) {
+                        scheduleNextChunkLoad();
+                        return;
+                    }
+                    chunkLoadQueue.removeFirst();
+                    findAllSignsInChunk(chunkLoad.chunkId);
                 }
             }
         };
 
-        nextLoadTimer
+        nextLoadTask
                 .runTaskLater(plugin,
                         Math.max(1,
-                                (chunkLoadQueue.getFirst().arrivalTime
-                                        + chunkLoadDelay
+                                (chunkLoadQueue.getFirst().releaseTime
                                         - System.currentTimeMillis())
                                         / tickInMillis));
     }
