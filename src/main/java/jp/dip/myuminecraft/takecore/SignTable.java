@@ -178,6 +178,12 @@ public class SignTable implements Listener {
 
         Block block = event.getBlock();
         Location location = block.getLocation();
+
+        // ChestShop breaks the sign in SignChangeEvent handler.
+        if (!(block.getState() instanceof Sign)) {
+            return;
+        }
+
         Location attachedLocation = ManagedSign.getAttachedLocation(block);
         ManagedSign sign = create(location, attachedLocation, lines);
         if (sign == null) {

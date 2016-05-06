@@ -17,7 +17,8 @@ public class TakeCore extends JavaPlugin {
 
         logger = new Logger(getLogger());
         Locale locale = Messages.getLocale(getConfig().getString("locale"));
-        messages = new Messages(ResourceBundle.getBundle("messages", locale), locale);
+        messages = new Messages(ResourceBundle.getBundle("messages", locale),
+                locale);
         signTable = new SignTable(this, logger, messages);
     }
 
