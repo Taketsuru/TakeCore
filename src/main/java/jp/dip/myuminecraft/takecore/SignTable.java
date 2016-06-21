@@ -118,7 +118,7 @@ public class SignTable implements Listener {
 
     public void onDisable() {
         for (ManagedSign sign : managedSigns.values()) {
-            sign.getOwner().destroy(sign);
+            sign.getOwner().destroy(null, sign);
         }
         managedSigns.clear();
         managedSignsInChunk.clear();
@@ -185,7 +185,8 @@ public class SignTable implements Listener {
         }
 
         Location attachedLocation = ManagedSign.getAttachedLocation(block);
-        ManagedSign sign = create(location, attachedLocation, lines);
+        ManagedSign sign = create(event.getPlayer(), location,
+                attachedLocation, lines);
         if (sign == null) {
             return;
         }
@@ -212,7 +213,7 @@ public class SignTable implements Listener {
 
         ManagedSign sign = managedSigns.remove(location);
         if (sign != null) {
-            sign.getOwner().destroy(sign);
+            sign.getOwner().destroy(event.getPlayer(), sign);
             removeFromManagedSignsInChunk(sign);
             decrementAttachedSignsCount(sign);
         }
@@ -224,7 +225,7 @@ public class SignTable implements Listener {
                 location.add(face.getModX(), face.getModY(), face.getModZ());
                 sign = managedSigns.remove(location);
                 if (sign != null) {
-                    sign.getOwner().destroy(sign);
+                    sign.getOwner().destroy(event.getPlayer(), sign);
                     removeFromManagedSignsInChunk(sign);
                 }
             }
@@ -266,7 +267,7 @@ public class SignTable implements Listener {
         }
 
         for (ManagedSign sign : list) {
-            sign.getOwner().destroy(sign);
+            sign.getOwner().destroy(null, sign);
             managedSigns.remove(sign.getLocation());
             decrementAttachedSignsCount(sign);
         }
@@ -333,7 +334,7 @@ public class SignTable implements Listener {
             }
 
             Location attachedLocation = ManagedSign.getAttachedLocation(block);
-            ManagedSign sign = create(location, attachedLocation, lines);
+            ManagedSign sign = create(null, location, attachedLocation, lines);
             if (sign != null) {
                 state.update();
                 signs.add(sign);
@@ -361,11 +362,11 @@ public class SignTable implements Listener {
         return true;
     }
 
-    ManagedSign create(Location location, Location attachedLocation,
-            String[] lines) {
+    ManagedSign create(Player player, Location location,
+            Location attachedLocation, String[] lines) {
         for (SignTableListener listener : listeners) {
-            ManagedSign instance = listener.create(location, attachedLocation,
-                    lines);
+            ManagedSign instance = listener.create(player, location,
+                    attachedLocation, lines);
             if (instance != null) {
                 return instance;
             }
