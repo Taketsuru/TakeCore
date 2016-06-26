@@ -4,50 +4,67 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.util.ArrayDeque;
-import java.util.Deque;
 import java.util.Properties;
-
-import org.bukkit.plugin.java.JavaPlugin;
+import java.util.Queue;
 
 public class Database {
 
-    class Result {
-        DatabaseTask task;
-        Throwable    error;
-        boolean      detached;
-        boolean      done;
-        boolean      waiting;
+    private static class Result {
+        private DatabaseTask task;
+        private Throwable    error;
+        private boolean      waitJoin;
+        private boolean      waitFinish;
+        private boolean      detached;
 
         Result(DatabaseTask task, boolean detached) {
             this.task = task;
             this.detached = detached;
+            waitJoin = waitFinish = false;
         }
 
-        void run(Connection connection) throws Throwable {
+        void run(Connection connection) {
             try {
                 task.run(connection);
-            } catch (Throwable t) {
-                if (detached) {
-                    throw t;
-                }
-                error = t;
-            }
 
-            synchronized (this) {
-                done = true;
-                if (waiting) {
-                    waiting = false;
-                    notifyAll();
+            } catch (Throwable e) {
+                error = e;
+
+            } finally {
+                if (detached) {
+                    return;
+                }
+
+                synchronized (this) {
+                    if (waitFinish) {
+                        waitFinish = false;
+                        notifyAll();
+                    } else {
+                        waitJoin = true;
+                        while (waitJoin) {
+                            try {
+                                wait();
+                            } catch (InterruptedException e) {
+                            }
+                        }
+                    }
                 }
             }
         }
 
-        synchronized void sync() throws Throwable {
+        synchronized void join() throws Throwable {
             assert !detached;
 
-            while (!done) {
-                waiting = true;
-                wait();
+            if (waitJoin) {
+                waitJoin = false;
+                notifyAll();
+            } else {
+                waitFinish = true;
+                while (waitFinish) {
+                    try {
+                        wait();
+                    } catch (InterruptedException e) {
+                    }
+                }
             }
 
             if (error != null) {
@@ -56,106 +73,86 @@ public class Database {
         }
     }
 
-    JavaPlugin    plugin;
-    Logger        logger;
-    Connection    connection;
-    Deque<Result> worklist;
-    Thread        executor;
-    boolean       draining;
-    boolean       busy;
+    private Logger        logger;
+    private Connection    connection;
+    private Queue<Result> queue = new ArrayDeque<Result>();
+    private boolean       idling;
 
-    public Database(JavaPlugin plugin, Logger logger) {
-        this.plugin = plugin;
+    public Database(Logger logger) {
         this.logger = logger;
-        this.worklist = new ArrayDeque<Result>();
     }
 
     public void enable(String url, Properties properties) throws SQLException {
         connection = DriverManager.getConnection(url, properties);
-        executor = new Thread(new Runnable() {
+        new Thread(new Runnable() {
             @Override
             public void run() {
                 runTasks();
             }
-        });
-        executor.start();
+        }).start();
     }
 
     public void disable() {
-        drain();
+        if (connection == null) {
+            return;
+        }
 
-        if (connection != null) {
-            try {
-                connection.close();
-            } catch (SQLException e) {
-            }
-            connection = null;
+        try {
+            submitSync(new DatabaseTask() {
+                @Override
+                public void run(Connection dummy) throws SQLException {
+                    connection.close();
+                    connection = null;
+                }
+            });
+        } catch (Throwable e) {
         }
     }
 
     public void submitSync(DatabaseTask job) throws Throwable {
         Result result = new Result(job, false);
         submit(result);
-        result.sync();
+        result.join();
     }
 
     public void submitAsync(DatabaseTask job) {
         submit(new Result(job, true));
     }
 
-    synchronized void submit(Result result) {
-        if (executor == null) {
+    private synchronized void submit(Result result) {
+        if (connection == null) {
             return;
         }
-
-        worklist.add(result);
-        if (!busy) {
+        queue.add(result);
+        if (idling) {
             notifyAll();
         }
     }
 
-    synchronized void drain() {
-        if (executor == null) {
-            return;
-        }
-
-        draining = true;
-        while (draining) {
+    private void runTasks() {
+        while (connection != null) {
             try {
-                wait();
-            } catch (InterruptedException ie) {
-            }
-        }
-    }
+                connection.setAutoCommit(true);
 
-    void runTasks() {
-        for (;;) {
-            try {
-                Result result;
+                Result result = null;
 
                 synchronized (this) {
-                    while ((result = worklist.pollFirst()) == null) {
-                        busy = false;
-
-                        if (draining) {
-                            draining = false;
-                            executor = null;
-                            notifyAll();
-                            return;
+                    if ((result = queue.poll()) == null) {
+                        idling = true;
+                        try {
+                            wait();
+                        } catch (InterruptedException e) {
                         }
-
-                        wait();
+                        idling = false;
+                        continue;
                     }
-                    busy = true;
                 }
 
                 result.run(connection);
 
-                connection.setAutoCommit(true);
-            } catch (Throwable t) {
-                logger.warning(t, "Failed to run a database task.");
+            } catch (SQLException e) {
+                logger.warning(e, "Failed to run a database task.");
             }
         }
     }
-
 }
