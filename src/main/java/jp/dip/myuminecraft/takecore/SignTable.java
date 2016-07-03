@@ -287,7 +287,8 @@ public class SignTable implements Listener {
     void removeFromManagedSignsInChunk(ManagedSign sign) {
         ChunkId chunkId = new ChunkId(sign.getLocation().getChunk());
         List<ManagedSign> list = managedSignsInChunk.get(chunkId);
-        if (1 < list.size()) {
+        if (list == null) {
+        } else if (1 < list.size()) {
             list.remove(sign);
         } else {
             managedSignsInChunk.remove(chunkId);
@@ -397,7 +398,9 @@ public class SignTable implements Listener {
                         return;
                     }
                     chunkLoadQueue.removeFirst();
-                    findAllSignsInChunk(chunkLoad.chunkId);
+                    if (Bukkit.getWorld(chunkLoad.chunkId.worldName) != null) {
+                        findAllSignsInChunk(chunkLoad.chunkId);
+                    }
                 }
             }
         };
