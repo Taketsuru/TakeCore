@@ -1,2 +1,2 @@
 # TakeCore
-Core plugins for Takenomics and KulaRail.
+Core plugin for Takenomics and KulaRail.
