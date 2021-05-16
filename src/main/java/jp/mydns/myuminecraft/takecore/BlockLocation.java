@@ -1,4 +1,4 @@
-package jp.dip.myuminecraft.takecore;
+package jp.mydns.myuminecraft.takecore;
 
 public class BlockLocation implements Comparable<BlockLocation> {
 

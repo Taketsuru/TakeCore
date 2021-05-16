@@ -1,4 +1,4 @@
-package jp.dip.myuminecraft.takecore;
+package jp.mydns.myuminecraft.takecore;
 
 import java.io.UnsupportedEncodingException;
 import java.util.IllformedLocaleException;

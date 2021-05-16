@@ -1,4 +1,4 @@
-package jp.dip.myuminecraft.takecore;
+package jp.mydns.myuminecraft.takecore;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -30,8 +30,8 @@ import org.bukkit.event.world.ChunkUnloadEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
 
-import jp.dip.myuminecraft.takecore.Logger;
-import jp.dip.myuminecraft.takecore.Messages;
+import jp.mydns.myuminecraft.takecore.Logger;
+import jp.mydns.myuminecraft.takecore.Messages;
 
 /**
  * SignTable knows all the non-blank wall signs and sign posts in the loaded

@@ -1,6 +1,4 @@
 name: TakeCore
-main: jp.dip.myuminecraft.takecore.TakeCore
-version: "${project.version}"
-depend: []
-softdepend: []
-commands: {}
+version: @version@
+main: jp.mydns.myuminecraft.takecore.TakeCore
+api-version: 1.16

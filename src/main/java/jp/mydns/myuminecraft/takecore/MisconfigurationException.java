@@ -1,4 +1,4 @@
-package jp.dip.myuminecraft.takecore;
+package jp.mydns.myuminecraft.takecore;
 
 public class MisconfigurationException extends Exception {
     static final long serialVersionUID = 1;

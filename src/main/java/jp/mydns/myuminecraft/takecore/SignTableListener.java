@@ -1,4 +1,4 @@
-package jp.dip.myuminecraft.takecore;
+package jp.mydns.myuminecraft.takecore;
 
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
